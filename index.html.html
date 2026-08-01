@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planetary Gear Train Simulator</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --accent: #38bdf8;
+      --text: #f8fafc;
+      --text-dim: #94a3b8;
+      --sun-color: #f59e0b;
+      --planet-color: #3b82f6;
+      --ring-color: #ef4444;
+      --carrier-color: #10b981;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+
+    main { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
+    canvas { background: #020617; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+
+    aside { width: 380px; background: var(--panel); padding: 24px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+    .header span { font-size: 0.75rem; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+    .header h1 { font-size: 1.5rem; margin-top: 4px; }
+
+    .readout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; }
+    .readout-item span:first-child { display: block; font-size: 0.75rem; color: var(--text-dim); }
+    .readout-item span:last-child { font-size: 1.1rem; font-weight: bold; color: var(--accent); }
+
+    .control-group { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+    .control-group h3 { font-size: 0.9rem; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .sun-title { color: var(--sun-color); }
+    .planet-title { color: var(--planet-color); }
+    .ring-title { color: var(--ring-color); }
+
+    .input-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.85rem; }
+    .input-row input[type="range"] { flex: 1; margin-left: 10px; }
+
+    select, button { width: 100%; padding: 8px 12px; background: #334155; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 4px; }
+    select:hover, button:hover { background: #475569; }
+
+    footer { text-align: center; font-size: 0.75rem; color: var(--text-dim); margin-top: auto; padding-top: 12px; }
+  </style>
+</head>
+<body>
+
+  <main>
+    <canvas id="gearCanvas" width="600" height="600"></canvas>
+  </main>
+
+  <aside>
+    <div class="header">
+      <span>Advanced STEM Suite</span>
+      <h1>Epicyclic Gear Dynamics</h1>
+    </div>
+
+    <div class="readout-grid">
+      <div class="readout-item">
+        <span>Carrier Speed ($\omega_c$)</span>
+        <span id="carrierSpeedOut">0.0 RPM</span>
+      </div>
+      <div class="readout-item">
+        <span>Planet Speed ($\omega_p$)</span>
+        <span id="planetSpeedOut">0.0 RPM</span>
+      </div>
+      <div class="readout-item">
+        <span>Overall Gear Ratio</span>
+        <span id="ratioOut">1:1</span>
+      </div>
+      <div class="readout-item">
+        <span>Mechanical Advantage</span>
+        <span id="maOut">1.0x</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h3>System Configuration Mode</h3>
+      <select id="modeSelect">
+        <option value="carrier_fixed">Fixed Ring (Standard Reduction)</option>
+        <option value="ring_fixed">Fixed Sun (Overdrive Mode)</option>
+        <option value="differential">Differential (Sun & Ring Active)</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <h3 class="sun-title">Sun Gear (A)</h3>
+      <div class="input-row">
+        <label>Teeth ($N_s$): <b id="sunTeethVal">24</b></label>
+        <input type="range" id="sunTeeth" min="12" max="48" step="6" value="24">
+      </div>
+      <div class="input-row">
+        <label>Speed ($\omega_s$): <b id="sunSpeedVal">100</b> RPM</label>
+        <input type="range" id="sunSpeed" min="-300" max="300" value="100">
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h3 class="planet-title">Planet Gears (B)</h3>
+      <div class="input-row">
+        <label>Teeth ($N_p$): <b id="planetTeethVal">18</b></label>
+        <input type="range" id="planetTeeth" min="12" max="36" step="6" value="18" disabled>
+      </div>
+      <div class="input-row">
+        <label>Count: <b id="planetCountVal">3</b></label>
+        <input type="range" id="planetCount" min="2" max="5" value="3">
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h3 class="ring-title">Ring Gear (C)</h3>
+      <div class="input-row">
+        <label>Teeth ($N_r$): <b id="ringTeethVal">60</b> (Auto-calculated)</label>
+      </div>
+      <div class="input-row">
+        <label>Speed ($\omega_r$): <b id="ringSpeedVal">0</b> RPM</label>
+        <input type="range" id="ringSpeed" min="-300" max="300" value="0" disabled>
+      </div>
+    </div>
+
+    <footer>
+      STEM Mechanics Suite | Epicyclic Dynamics Module
+    </footer>
+  </aside>
+
+  <script>
+    const canvas = document.getElementById('gearCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // UI elements
+    const sunTeethInput = document.getElementById('sunTeeth');
+    const planetCountInput = document.getElementById('planetCount');
+    const sunSpeedInput = document.getElementById('sunSpeed');
+    const ringSpeedInput = document.getElementById('ringSpeed');
+    const modeSelect = document.getElementById('modeSelect');
+
+    // System state
+    let N_s = parseInt(sunTeethInput.value);
+    let N_p = 18; // Derived base
+    let N_r = N_s + 2 * N_p; // Kinematic constraint for simple planetary setup
+    let numPlanets = parseInt(planetCountInput.value);
+
+    let w_s = parseInt(sunSpeedInput.value); // RPM
+    let w_r = 0; // RPM
+    let w_c = 0; // RPM
+    let w_p = 0; // RPM
+
+    let angleSun = 0;
+    let angleCarrier = 0;
+    let anglePlanet = 0;
+    let angleRing = 0;
+
+    const module = 5; // Gear Module (Scale factor)
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    function updateKinematics() {
+      N_s = parseInt(sunTeethInput.value);
+      // Ensure N_r = N_s + 2*N_p maintains integer constraints
+      N_r = N_s + 2 * N_p;
+      document.getElementById('sunTeethVal').textContent = N_s;
+      document.getElementById('planetTeethVal').textContent = N_p;
+      document.getElementById('ringTeethVal').textContent = N_r;
+      document.getElementById('planetCountVal').textContent = planetCountInput.value;
+
+      numPlanets = parseInt(planetCountInput.value);
+
+      const mode = modeSelect.value;
+      if (mode === 'carrier_fixed') {
+        ringSpeedInput.disabled = true;
+        ringSpeedInput.value = 0;
+        w_s = parseInt(sunSpeedInput.value);
+        w_r = 0;
+        // Fundamental equation: w_s*N_s + w_r*N_r = w_c*(N_s + N_r)
+        w_c = (w_s * N_s) / (N_s + N_r);
+      } else if (mode === 'ring_fixed') {
+        ringSpeedInput.disabled = true;
+        sunSpeedInput.disabled = false;
+        w_s = parseInt(sunSpeedInput.value);
+        w_r = 0;
+        w_c = (w_s * N_s) / (N_s + N_r);
+      } else if (mode === 'differential') {
+        ringSpeedInput.disabled = false;
+        w_s = parseInt(sunSpeedInput.value);
+        w_r = parseInt(ringSpeedInput.value);
+        w_c = (w_s * N_s + w_r * N_r) / (N_s + N_r);
+      }
+
+      // Spin of planet gear relative to carrier
+      w_p = (w_s - w_c) * (N_s / N_p);
+
+      // Display Readouts
+      document.getElementById('carrierSpeedOut').textContent = `${w_c.toFixed(1)} RPM`;
+      document.getElementById('planetSpeedOut').textContent = `${w_p.toFixed(1)} RPM`;
+      document.getElementById('sunSpeedVal').textContent = sunSpeedInput.value;
+      document.getElementById('ringSpeedVal').textContent = ringSpeedInput.value;
+
+      const totalRatio = w_s !== 0 ? (w_s / w_c).toFixed(2) : 'Infinity';
+      document.getElementById('ratioOut').textContent = `${totalRatio} : 1`;
+      document.getElementById('maOut').textContent = `${Math.abs(totalRatio)}x`;
+    }
+
+    function drawGear(x, y, radius, teeth, angle, color, isInternal = false) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+
+      ctx.beginPath();
+      const toothDepth = isInternal ? -8 : 8;
+      const numPoints = teeth * 2;
+      for (let i = 0; i < numPoints; i++) {
+        const r = (i % 2 === 0) ? radius + toothDepth : radius;
+        const a = (i * Math.PI) / teeth;
+        const px = r * Math.cos(a);
+        const py = r * Math.sin(a);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Center marker / spokes
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#0f172a';
+      ctx.fill();
+      ctx.stroke();
+
+      // Direction indicator
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(radius * 0.8, 0);
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawCarrier(r_carrier) {
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(angleCarrier);
+
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 6;
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+
+      ctx.beginPath();
+      for (let i = 0; i < numPlanets; i++) {
+        const a = (i * 2 * Math.PI) / numPlanets;
+        const px = r_carrier * Math.cos(a);
+        const py = r_carrier * Math.sin(a);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    let lastTime = 0;
+    function animate(time) {
+      if (!lastTime) lastTime = time;
+      const dt = (time - lastTime) / 1000; // time delta in seconds
+      lastTime = time;
+
+      updateKinematics();
+
+      // Convert RPM to radians per second
+      angleSun += (w_s * 2 * Math.PI / 60) * dt;
+      angleCarrier += (w_c * 2 * Math.PI / 60) * dt;
+      anglePlanet += (w_p * 2 * Math.PI / 60) * dt;
+      angleRing += (w_r * 2 * Math.PI / 60) * dt;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const r_s = (N_s * module) / 2;
+      const r_p = (N_p * module) / 2;
+      const r_r = (N_r * module) / 2;
+      const r_carrier = r_s + r_p;
+
+      // 1. Draw Ring Gear
+      drawGear(centerX, centerY, r_r, N_r, angleRing, '#ef4444', true);
+
+      // 2. Draw Planet Carrier Frame
+      drawCarrier(r_carrier);
+
+      // 3. Draw Sun Gear
+      drawGear(centerX, centerY, r_s, N_s, angleSun, '#f59e0b');
+
+      // 4. Draw Planet Gears
+      for (let i = 0; i < numPlanets; i++) {
+        const carrierAngle = angleCarrier + (i * 2 * Math.PI) / numPlanets;
+        const px = centerX + r_carrier * Math.cos(carrierAngle);
+        const py = centerY + r_carrier * Math.sin(carrierAngle);
+        
+        // Planet absolute rotation = Carrier Rotation + Local Planet Rotation
+        drawGear(px, py, r_p, N_p, angleCarrier + anglePlanet, '#3b82f6');
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    // Event listeners
+    sunTeethInput.addEventListener('input', updateKinematics);
+    planetCountInput.addEventListener('input', updateKinematics);
+    sunSpeedInput.addEventListener('input', updateKinematics);
+    ringSpeedInput.addEventListener('input', updateKinematics);
+    modeSelect.addEventListener('change', updateKinematics);
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
